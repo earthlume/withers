@@ -1,0 +1,16 @@
+{
+    email abe@hoens.fun
+}
+
+withers.lab.hoens.fun {
+    tls {
+        dns cloudflare {
+            api_token {env.CF_API_TOKEN}
+        }
+        propagation_delay 30s
+        propagation_timeout 5m
+        resolvers 1.1.1.1 1.0.0.1
+    }
+    reverse_proxy 127.0.0.1:8080
+    encode gzip
+}
