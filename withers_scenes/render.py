@@ -136,6 +136,7 @@ class Pipeline:
         self.sense.set_rotation(180)
         self._prev = np.zeros((8, 8, 3), dtype=np.float32)
         self._dither_phase = 0
+        self.last_frame = [(0,0,0)] * 64
 
     def reset_blur(self):
         self._prev[:] = 0.0
@@ -222,6 +223,7 @@ class Pipeline:
         np.clip(arr, 0.0, 255.0, out=arr)
         arr_u8 = arr.astype(np.uint8)
         out = [(int(r), int(g), int(b)) for r, g, b in arr_u8.reshape(64, 3)]
+        self.last_frame = out
         self.sense.set_pixels(out)
 
     def clear(self):

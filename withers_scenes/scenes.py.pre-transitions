@@ -4,7 +4,7 @@ from .render import (FPS, DT, BLK, VOID, SHADOW, SHADOW_HI, AURA_DIM, AURA_MID,
                      AURA_HOT, AURA_CORE, INK, INK_HOT, GLYPH, GLYPH_HOT,
                      GLASS, GLASS_HI, SAND, SAND_HI, THREAD, FIRE_LO, FIRE_MID,
                      FIRE_HI, FIRE_TOP, VERDICT, SIGIL_COLD, SIGIL_HOT,
-                     ORBIT_A, ORBIT_B, ORBIT_C, EMBER, EMBER_HI,
+                     ORBIT_A, ORBIT_B, ORBIT_C,
                      lerp, mul, screen, plot_soft, draw_line, text_cols)
 from .ambient import full_bg
 
@@ -28,24 +28,13 @@ STORM_BG     = (8, 10, 22)
 STORM_RAIN   = (80, 130, 170)
 STORM_RAIN_HI= (150, 200, 230)
 STORM_BOLT   = (230, 240, 255)
+
 # Ledger palette
 LEDGER_BOOK_DARK = (60, 30, 18)
 LEDGER_BOOK_HI   = (130, 80, 40)
 LEDGER_PAGE      = (200, 180, 120)
 LEDGER_PAGE_HOT  = (240, 220, 160)
 LEDGER_MOTE      = (70, 170, 145)
-# Murmuration palette — flock in cool twilight
-FLOCK_BIRD       = (170, 200, 220)
-FLOCK_BIRD_HOT   = (230, 240, 250)
-FLOCK_BG_TOP     = (25, 15, 45)
-FLOCK_BG_BOT     = (10, 5, 22)
-# Eclipse palette
-ECLIPSE_SUN      = (240, 170, 60)
-ECLIPSE_CORONA   = (255, 200, 100)
-ECLIPSE_DIAMOND  = (255, 240, 200)
-ECLIPSE_TOTALITY = (80, 30, 60)
-ECLIPSE_SKY_DAY  = (20, 10, 30)
-ECLIPSE_SKY_NITE = (3, 2, 12)
 
 def entrance(pipe, amb, state=None):
     duration = 5.5; start = time.time(); pipe.reset_blur()
@@ -66,14 +55,15 @@ def entrance(pipe, amb, state=None):
         pipe.display(frame, state=state); time.sleep(DT)
 
 def idle(pipe, amb, duration, state=None):
-    """Kept for use after judgment only. Normal scene handoffs use transitions."""
     start = time.time()
     while time.time() - start < duration:
         t = time.time(); frame = full_bg(t)
         amb.tick(frame, wisp_chance=0.015)
         pipe.display(frame, state=state); time.sleep(DT)
 
-# --- Ledger -------------------------------------------------------
+# --- Ledger (calibration scene) -----------------------------------
+# Book outline in frame. Data-motes swirl and converge into book.
+# When state.baseline_ready, slam shut + gold flash + exit.
 BOOK_SHAPE = [
     [0,0,0,0,0,0,0,0],
     [0,1,1,1,1,1,1,0],
@@ -86,12 +76,14 @@ BOOK_SHAPE = [
 ]
 
 class _DataMote:
+    """Data-point swirling toward the book center."""
     def __init__(self):
         a = random.uniform(0, 2*math.pi)
         r = random.uniform(4.5, 7.0)
-        self.x = 3.5 + r * math.cos(a); self.y = 3.5 + r * math.sin(a)
+        self.x = 3.5 + r * math.cos(a)
+        self.y = 3.5 + r * math.sin(a)
         self.angular_v = random.uniform(1.2, 2.4) * random.choice([-1, 1])
-        self.radial_v  = -random.uniform(0.4, 0.8)
+        self.radial_v  = -random.uniform(0.4, 0.8)  # inward
         self.life = random.uniform(1.8, 2.6); self.age = 0.0
     def step(self):
         self.age += DT
@@ -102,7 +94,7 @@ class _DataMote:
         new_a = a + self.angular_v * DT
         self.x = 3.5 + new_r * math.cos(new_a)
         self.y = 3.5 + new_r * math.sin(new_a)
-    def alive(self): return self.age < self.life and (abs(self.x-3.5) > 0.5 or abs(self.y-3.5) > 0.5)
+    def alive(self): return self.age < self.life and abs(self.x-3.5) > 0.5 or abs(self.y-3.5) > 0.5
     def render(self, frame):
         dx = self.x - 3.5; dy = self.y - 3.5
         dist_factor = min(1.0, math.sqrt(dx*dx + dy*dy) / 3.5)
@@ -110,25 +102,33 @@ class _DataMote:
         plot_soft(frame, self.x, self.y, LEDGER_MOTE, intensity)
 
 def ledger(pipe, amb, state=None):
+    """Calibration scene. Runs until state.baseline_ready or 45s timeout."""
     start = time.time(); pipe.reset_blur()
     motes = []
+    page_turn_start = start
+    page_phase = 0
+    # Fade-in book
     while True:
         t = time.time(); el = t - start
         done = (state is not None and state.baseline_ready) or el > 45.0
-        if done and el > 2.0: break
+        if done and el > 2.0: break  # min 2s for visuals even if baseline cached
         fade = min(1.0, el / 1.5)
         frame = [mul(VOID, 1.5)] * 64
+        # Book outline
         for r in range(8):
             for c in range(8):
                 v = BOOK_SHAPE[r][c]
                 if v == 1:
                     frame[r*8+c] = mul(LEDGER_BOOK_DARK, fade)
                 elif v == 2:
+                    # Pages — turning
                     page_flip = math.sin(el * 4.0 + (r + c)*0.5) * 0.3 + 0.7
                     col = lerp(LEDGER_PAGE, LEDGER_PAGE_HOT, page_flip)
                     frame[r*8+c] = mul(col, fade * 0.85)
+        # Spine highlight
         for r in range(1, 7):
             frame[r*8+4] = mul(LEDGER_BOOK_HI, fade)
+        # Spawn data-motes
         if random.random() < 0.35 and el > 0.8:
             motes.append(_DataMote())
         for m in motes: m.step()
@@ -136,6 +136,7 @@ def ledger(pipe, amb, state=None):
         for m in motes: m.render(frame)
         amb.tick(frame, spawn_dust=False, wisp_chance=0)
         pipe.display(frame, state=state); time.sleep(DT)
+    # Slam shut — gold flash
     for i in range(int(0.4*FPS)):
         u = i/(0.4*FPS)
         frame = [lerp(LEDGER_PAGE_HOT, AURA_CORE, u)] * 64
@@ -144,6 +145,7 @@ def ledger(pipe, amb, state=None):
                 if BOOK_SHAPE[r][c] == 1:
                     frame[r*8+c] = mul(LEDGER_BOOK_DARK, 1 - u*0.3)
         pipe.display(frame, state=state); time.sleep(DT)
+    # Fade to dark
     for i in range(int(0.8*FPS)):
         u = i/(0.8*FPS)
         frame = [lerp(AURA_CORE, VOID, u)] * 64
@@ -220,17 +222,18 @@ def hourglass(pipe, amb, state=None):
         amb.tick(frame, wisp_chance=0.002)
         pipe.display(frame, state=state); time.sleep(DT)
 
-# --- Wheel --------------------------------------------------------
+# --- Wheel (gyro-modulated) --------------------------------------
 def wheel(pipe, amb, state=None):
     duration = 10.0; start = time.time(); pipe.reset_blur()
     while True:
         el = time.time() - start
         if el > duration: break
         t = time.time(); frame = full_bg(t)
+        # Gyro Z scales rotation — clamp to avoid runaway
         gyro_factor = 1.0
         if state is not None:
-            gz = max(-90.0, min(90.0, state.gyro_z))
-            gyro_factor = 1.0 + gz / 45.0
+            gz = max(-90.0, min(90.0, state.gyro_z))  # deg/s
+            gyro_factor = 1.0 + gz / 45.0  # range ~[-1, 3]
         op = el * (2*math.pi / 6) * gyro_factor
         for i in range(8):
             a = i*(2*math.pi/8) + op
@@ -254,7 +257,8 @@ def wheel(pipe, amb, state=None):
                     a = i*(2*math.pi/4) + ip
                     for step_i in range(1, 4):
                         rs = step_i * 0.75
-                        plot_soft(frame, 3.5+rs*math.cos(a), 3.5+rs*math.sin(a), AURA_HOT, s*0.5)
+                        plot_soft(frame, 3.5+rs*math.cos(a), 3.5+rs*math.sin(a),
+                                  AURA_HOT, s*0.5)
         amb.tick(frame, wisp_chance=0.002)
         pipe.display(frame, state=state); time.sleep(DT)
 
@@ -452,13 +456,17 @@ def glyphs(pipe, amb, state=None):
         amb.tick(frame, wisp_chance=0)
         pipe.display(frame, state=state); time.sleep(DT)
 
-# --- Fire ---------------------------------------------------------
+# --- Fire (temp + pressure modulated) ----------------------------
 def fire(pipe, amb, state=None):
     duration = 10.0; start = time.time()
     H = 10; heat = [[0.0]*8 for _ in range(H)]
-    temp_shift = 0.0; flicker_amp = 0.02
+    # Temperature palette shift: hot temp = more orange, cool temp = more red
+    temp_shift = 0.0
+    flicker_amp = 0.02
     if state is not None:
+        # 15C -> -0.2 (cooler/redder), 35C -> +0.3 (hotter/more yellow)
         temp_shift = max(-0.2, min(0.3, (state.temperature - 25.0) / 35.0))
+        # Low pressure -> bigger flicker
         p_norm = max(-1.0, min(1.0, (1013.0 - state.pressure) / 15.0))
         flicker_amp = 0.02 + max(0.0, p_norm) * 0.05
     STOPS = [(0.0, FIRE_LO), (0.35, FIRE_MID), (0.65, FIRE_HI), (1.0, FIRE_TOP)]
@@ -515,7 +523,8 @@ def orrery(pipe, amb, state=None):
         (1.8, 1.4, math.pi/3, ORBIT_B),
         (0.8, 2.5, math.pi, ORBIT_C),
     ]
-    trails = [[] for _ in bodies]; TRAIL_LIFE = 1.8
+    trails = [[] for _ in bodies]
+    TRAIL_LIFE = 1.8
     while True:
         el = time.time() - start
         if el > duration: break
@@ -545,14 +554,16 @@ def orrery(pipe, amb, state=None):
         amb.tick(frame, wisp_chance=0.002)
         pipe.display(frame, state=state); time.sleep(DT)
 
-# --- Storm --------------------------------------------------------
+# --- Storm (pressure-drop triggered or scheduled) ----------------
 class _RainStreak:
     def __init__(self):
-        self.x = random.uniform(0, 7.99); self.y = random.uniform(-4, 0)
+        self.x = random.uniform(0, 7.99)
+        self.y = random.uniform(-4, 0)
         self.v = random.uniform(12.0, 18.0)
         self.length = random.uniform(1.8, 3.5)
         self.brightness = random.uniform(0.6, 1.0)
-    def step(self): self.y += self.v * DT
+    def step(self):
+        self.y += self.v * DT
     def alive(self): return self.y < 10
     def render(self, frame):
         for i in range(int(self.length * 2)):
@@ -564,185 +575,45 @@ class _RainStreak:
 
 def storm(pipe, amb, state=None):
     duration = 12.0; start = time.time(); pipe.reset_blur()
-    rain = []; bolt_flash = 0.0; bolt_path = []
+    rain = []
+    last_bolt = 0.0
     next_bolt = start + random.uniform(2.0, 5.0)
+    bolt_flash = 0.0
+    bolt_path = []
     while True:
         el = time.time() - start
         if el > duration: break
-        t = time.time(); frame = [STORM_BG] * 64
-        if random.random() < 0.65: rain.append(_RainStreak())
+        t = time.time()
+        frame = [STORM_BG] * 64
+        # Rain
+        if random.random() < 0.65:
+            rain.append(_RainStreak())
         for r_ in rain: r_.step()
         rain[:] = [r_ for r_ in rain if r_.alive()]
         for r_ in rain: r_.render(frame)
+        # Lightning
         if t > next_bolt and bolt_flash <= 0:
-            bolt_flash = 0.35; next_bolt = t + random.uniform(3.0, 7.0)
-            bolt_path = []; x = random.uniform(2, 6)
+            bolt_flash = 0.35
+            last_bolt = t
+            next_bolt = t + random.uniform(3.0, 7.0)
+            # Zigzag path top to bottom
+            bolt_path = []
+            x = random.uniform(2, 6)
             for y in range(0, 9):
                 bolt_path.append((x, y))
                 x += random.uniform(-0.8, 0.8)
                 x = max(0.2, min(7.8, x))
         if bolt_flash > 0:
             flash_fade = bolt_flash / 0.35
+            # White wash
             for i in range(64):
                 frame[i] = lerp(frame[i], STORM_BOLT, flash_fade * 0.55)
+            # Bolt path
             for i in range(len(bolt_path)-1):
                 x0, y0 = bolt_path[i]; x1, y1 = bolt_path[i+1]
                 draw_line(frame, x0, y0, x1, y1, STORM_BOLT, flash_fade)
             bolt_flash -= DT
         amb.tick(frame, spawn_dust=False, wisp_chance=0)
-        pipe.display(frame, state=state); time.sleep(DT)
-
-# --- Murmuration (NEW) --------------------------------------------
-class _Bird:
-    def __init__(self, x, y, vx, vy):
-        self.x = x; self.y = y; self.vx = vx; self.vy = vy
-    def step(self, flock, heading_goal, bounds):
-        # Boids: cohesion (toward center of neighbors) + alignment (match velocity)
-        #        + separation (away from too-close neighbors) + goal (heading)
-        cx, cy, ax, ay = 0.0, 0.0, 0.0, 0.0
-        sep_x, sep_y = 0.0, 0.0
-        n_near = 0; n_close = 0
-        for b in flock:
-            if b is self: continue
-            dx = b.x - self.x; dy = b.y - self.y
-            d2 = dx*dx + dy*dy
-            if d2 < 16.0:  # within 4px
-                cx += b.x; cy += b.y
-                ax += b.vx; ay += b.vy
-                n_near += 1
-                if d2 < 1.5:  # too close
-                    sep_x -= dx; sep_y -= dy
-                    n_close += 1
-        # Cohesion
-        if n_near > 0:
-            cx /= n_near; cy /= n_near
-            self.vx += (cx - self.x) * 0.18 * DT
-            self.vy += (cy - self.y) * 0.18 * DT
-            self.vx += (ax / n_near - self.vx) * 0.6 * DT
-            self.vy += (ay / n_near - self.vy) * 0.6 * DT
-        if n_close > 0:
-            self.vx += sep_x * 2.0 * DT
-            self.vy += sep_y * 2.0 * DT
-        # Heading goal (soft pull)
-        gx, gy = heading_goal
-        self.vx += (gx - self.vx) * 0.15 * DT
-        self.vy += (gy - self.vy) * 0.15 * DT
-        # Speed normalize
-        speed = math.sqrt(self.vx*self.vx + self.vy*self.vy) + 0.001
-        target_speed = 2.5
-        self.vx = self.vx / speed * target_speed
-        self.vy = self.vy / speed * target_speed
-        # Apply
-        self.x += self.vx * DT; self.y += self.vy * DT
-        # Torus wrap
-        self.x %= 8.0; self.y %= 8.0
-
-def murmuration(pipe, amb, state=None):
-    duration = 14.0; start = time.time(); pipe.reset_blur()
-    N = 18
-    flock = [_Bird(random.uniform(0,8), random.uniform(0,8),
-                   random.uniform(-2,2), random.uniform(-2,2)) for _ in range(N)]
-    # Heading goal wanders; optionally influenced by gyro
-    goal_angle = random.uniform(0, 2*math.pi)
-    goal_change_at = start + random.uniform(2.5, 4.5)
-    while True:
-        el = time.time() - start
-        if el > duration: break
-        t = time.time()
-        # Twilight gradient background
-        frame = []
-        for r in range(8):
-            for c in range(8):
-                u = r / 7.0
-                frame.append(lerp(FLOCK_BG_TOP, FLOCK_BG_BOT, u))
-        # Update heading goal
-        if t > goal_change_at:
-            goal_angle = random.uniform(0, 2*math.pi)
-            goal_change_at = t + random.uniform(2.5, 4.5)
-        gyro_offset = 0.0
-        if state is not None:
-            gyro_offset = max(-1.5, min(1.5, state.gyro_z / 30.0))
-        heading_angle = goal_angle + gyro_offset
-        heading_goal = (2.5 * math.cos(heading_angle), 2.5 * math.sin(heading_angle))
-        # Step birds
-        for b in flock:
-            b.step(flock, heading_goal, (8, 8))
-        # Render birds with direction-based brightness (leading edge brighter)
-        for b in flock:
-            speed = math.sqrt(b.vx*b.vx + b.vy*b.vy)
-            intensity = 0.7 + 0.3 * min(1.0, speed / 3.0)
-            # Head: bright
-            plot_soft(frame, b.x, b.y, FLOCK_BIRD_HOT, intensity)
-            # Tail: dimmer, slightly behind
-            bx = b.x - b.vx * 0.15; by = b.y - b.vy * 0.15
-            plot_soft(frame, bx, by, FLOCK_BIRD, intensity * 0.55)
-        amb.tick(frame, spawn_dust=True, wisp_chance=0.001)
-        pipe.display(frame, state=state); time.sleep(DT)
-
-# --- Eclipse (NEW) ------------------------------------------------
-def eclipse(pipe, amb, state=None):
-    duration = 15.0; start = time.time(); pipe.reset_blur()
-    # Sun at center, moon passes from left edge to right edge
-    sun_cx, sun_cy = 3.5, 3.5
-    sun_r = 2.2
-    moon_r = 2.3  # slightly larger than sun for totality
-    # Moon trajectory: left to right across sun center, offset slightly
-    while True:
-        el = time.time() - start
-        if el > duration: break
-        t = time.time(); u = el / duration
-        # Moon x: -4 → 12 (fully off → fully past)
-        moon_x = -4 + 16 * u
-        moon_y = sun_cy + 0.3
-        # Totality phase detection
-        dx_centers = moon_x - sun_cx
-        total_dist = abs(dx_centers)
-        totality = max(0.0, 1.0 - total_dist / 0.5)  # 1 when centered, 0 when > 0.5px off
-        diamond_ring = max(0.0, 1.0 - abs(total_dist - 2.0) / 0.3)  # flash at edge of totality
-        # Sky color: daytime → dusk → night at totality
-        sky = lerp(ECLIPSE_SKY_DAY, ECLIPSE_SKY_NITE, totality * 0.9)
-        frame = [sky] * 64
-        # Draw corona (always, dimmer)
-        for r in range(8):
-            for c in range(8):
-                dx = c - sun_cx; dy = r - sun_cy
-                d = math.sqrt(dx*dx + dy*dy)
-                if d > sun_r and d < sun_r + 3.0:
-                    corona_fade = max(0, 1 - (d - sun_r) / 3.0)
-                    # Corona flares during totality
-                    flare_mult = 1.0 + totality * 2.5
-                    wobble = 0.85 + 0.15 * math.sin(t*3 + math.atan2(dy, dx)*4)
-                    col = lerp(ECLIPSE_CORONA, ECLIPSE_DIAMOND, totality)
-                    frame[r*8+c] = screen(frame[r*8+c], mul(col, corona_fade * flare_mult * wobble * 0.5))
-                elif d <= sun_r:
-                    # Sun disc
-                    pulse = 0.9 + 0.1*math.sin(t*1.5)
-                    frame[r*8+c] = mul(ECLIPSE_SUN, pulse)
-        # Draw moon (black disc with soft edge)
-        for r in range(8):
-            for c in range(8):
-                dx = c - moon_x; dy = r - moon_y
-                d = math.sqrt(dx*dx + dy*dy)
-                if d < moon_r:
-                    occlude = 1.0 if d < moon_r - 0.5 else (moon_r - d) / 0.5
-                    frame[r*8+c] = lerp(frame[r*8+c], (0, 0, 0), occlude)
-        # Diamond ring flash — bright point where sun peeks at contact
-        if diamond_ring > 0 and totality < 1.0:
-            if dx_centers < 0:
-                px = moon_x + moon_r - 0.3
-            else:
-                px = moon_x - moon_r + 0.3
-            plot_soft(frame, px, moon_y, ECLIPSE_DIAMOND, diamond_ring)
-            # Extra glow around diamond
-            for dr_, dc_ in [(-1,0),(1,0),(0,-1),(0,1)]:
-                plot_soft(frame, px+dc_, moon_y+dr_, ECLIPSE_DIAMOND, diamond_ring * 0.4)
-        # Stars visible during totality
-        if totality > 0.6:
-            star_intensity = (totality - 0.6) / 0.4
-            for sx, sy in [(1.2, 0.8), (6.5, 1.5), (0.5, 6.2), (7.2, 5.8), (2.8, 7.3)]:
-                twinkle = 0.7 + 0.3 * math.sin(t*2.5 + sx + sy)
-                plot_soft(frame, sx, sy, (200, 220, 255), star_intensity * twinkle * 0.7)
-        amb.tick(frame, spawn_dust=False, wisp_chance=0.001)
         pipe.display(frame, state=state); time.sleep(DT)
 
 # --- Recite -------------------------------------------------------
@@ -844,8 +715,6 @@ REGISTRY = [
     ('fire',          fire,          3),
     ('orrery',        orrery,        3),
     ('storm',         storm,         1),
-    ('murmuration',   murmuration,   3),
-    ('eclipse',       eclipse,       2),
     ('recite',        recite,        2),
     ('judgment',      judgment,      1),
 ]
