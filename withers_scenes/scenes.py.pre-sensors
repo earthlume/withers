@@ -1,4 +1,4 @@
-"""All scenes. Each: scene(pipe, amb, state=None)."""
+"""All scenes. Each takes (pipeline, ambient) and runs to completion."""
 import math, random, time
 from .render import (FPS, DT, BLK, VOID, SHADOW, SHADOW_HI, AURA_DIM, AURA_MID,
                      AURA_HOT, AURA_CORE, INK, INK_HOT, GLYPH, GLYPH_HOT,
@@ -23,20 +23,7 @@ QUOTES = [
     "THE QUILL DOES NOT TIRE.",
 ]
 
-# Storm palette
-STORM_BG     = (8, 10, 22)
-STORM_RAIN   = (80, 130, 170)
-STORM_RAIN_HI= (150, 200, 230)
-STORM_BOLT   = (230, 240, 255)
-
-# Ledger palette
-LEDGER_BOOK_DARK = (60, 30, 18)
-LEDGER_BOOK_HI   = (130, 80, 40)
-LEDGER_PAGE      = (200, 180, 120)
-LEDGER_PAGE_HOT  = (240, 220, 160)
-LEDGER_MOTE      = (70, 170, 145)
-
-def entrance(pipe, amb, state=None):
+def entrance(pipe, amb):
     duration = 5.5; start = time.time(); pipe.reset_blur()
     while True:
         el = time.time() - start
@@ -52,104 +39,14 @@ def entrance(pipe, amb, state=None):
                     col = lerp(AURA_MID, AURA_CORE, eased)
                     frame[r*8+c] = screen(frame[r*8+c], mul(col, glow*0.95))
         amb.tick(frame, spawn_dust=(eased>0.2), wisp_chance=0)
-        pipe.display(frame, state=state); time.sleep(DT)
+        pipe.display(frame); time.sleep(DT)
 
-def idle(pipe, amb, duration, state=None):
+def idle(pipe, amb, duration):
     start = time.time()
     while time.time() - start < duration:
         t = time.time(); frame = full_bg(t)
         amb.tick(frame, wisp_chance=0.015)
-        pipe.display(frame, state=state); time.sleep(DT)
-
-# --- Ledger (calibration scene) -----------------------------------
-# Book outline in frame. Data-motes swirl and converge into book.
-# When state.baseline_ready, slam shut + gold flash + exit.
-BOOK_SHAPE = [
-    [0,0,0,0,0,0,0,0],
-    [0,1,1,1,1,1,1,0],
-    [0,1,2,2,1,2,2,1],
-    [0,1,2,2,1,2,2,1],
-    [0,1,2,2,1,2,2,1],
-    [0,1,2,2,1,2,2,1],
-    [0,1,1,1,1,1,1,0],
-    [0,0,0,0,0,0,0,0],
-]
-
-class _DataMote:
-    """Data-point swirling toward the book center."""
-    def __init__(self):
-        a = random.uniform(0, 2*math.pi)
-        r = random.uniform(4.5, 7.0)
-        self.x = 3.5 + r * math.cos(a)
-        self.y = 3.5 + r * math.sin(a)
-        self.angular_v = random.uniform(1.2, 2.4) * random.choice([-1, 1])
-        self.radial_v  = -random.uniform(0.4, 0.8)  # inward
-        self.life = random.uniform(1.8, 2.6); self.age = 0.0
-    def step(self):
-        self.age += DT
-        dx = self.x - 3.5; dy = self.y - 3.5
-        r = math.sqrt(dx*dx + dy*dy) + 0.001
-        a = math.atan2(dy, dx)
-        new_r = max(0.3, r + self.radial_v * DT)
-        new_a = a + self.angular_v * DT
-        self.x = 3.5 + new_r * math.cos(new_a)
-        self.y = 3.5 + new_r * math.sin(new_a)
-    def alive(self): return self.age < self.life and abs(self.x-3.5) > 0.5 or abs(self.y-3.5) > 0.5
-    def render(self, frame):
-        dx = self.x - 3.5; dy = self.y - 3.5
-        dist_factor = min(1.0, math.sqrt(dx*dx + dy*dy) / 3.5)
-        intensity = 0.3 + 0.7 * dist_factor
-        plot_soft(frame, self.x, self.y, LEDGER_MOTE, intensity)
-
-def ledger(pipe, amb, state=None):
-    """Calibration scene. Runs until state.baseline_ready or 45s timeout."""
-    start = time.time(); pipe.reset_blur()
-    motes = []
-    page_turn_start = start
-    page_phase = 0
-    # Fade-in book
-    while True:
-        t = time.time(); el = t - start
-        done = (state is not None and state.baseline_ready) or el > 45.0
-        if done and el > 2.0: break  # min 2s for visuals even if baseline cached
-        fade = min(1.0, el / 1.5)
-        frame = [mul(VOID, 1.5)] * 64
-        # Book outline
-        for r in range(8):
-            for c in range(8):
-                v = BOOK_SHAPE[r][c]
-                if v == 1:
-                    frame[r*8+c] = mul(LEDGER_BOOK_DARK, fade)
-                elif v == 2:
-                    # Pages — turning
-                    page_flip = math.sin(el * 4.0 + (r + c)*0.5) * 0.3 + 0.7
-                    col = lerp(LEDGER_PAGE, LEDGER_PAGE_HOT, page_flip)
-                    frame[r*8+c] = mul(col, fade * 0.85)
-        # Spine highlight
-        for r in range(1, 7):
-            frame[r*8+4] = mul(LEDGER_BOOK_HI, fade)
-        # Spawn data-motes
-        if random.random() < 0.35 and el > 0.8:
-            motes.append(_DataMote())
-        for m in motes: m.step()
-        motes[:] = [m for m in motes if m.alive()]
-        for m in motes: m.render(frame)
-        amb.tick(frame, spawn_dust=False, wisp_chance=0)
-        pipe.display(frame, state=state); time.sleep(DT)
-    # Slam shut — gold flash
-    for i in range(int(0.4*FPS)):
-        u = i/(0.4*FPS)
-        frame = [lerp(LEDGER_PAGE_HOT, AURA_CORE, u)] * 64
-        for r in range(8):
-            for c in range(8):
-                if BOOK_SHAPE[r][c] == 1:
-                    frame[r*8+c] = mul(LEDGER_BOOK_DARK, 1 - u*0.3)
-        pipe.display(frame, state=state); time.sleep(DT)
-    # Fade to dark
-    for i in range(int(0.8*FPS)):
-        u = i/(0.8*FPS)
-        frame = [lerp(AURA_CORE, VOID, u)] * 64
-        pipe.display(frame, state=state); time.sleep(DT)
+        pipe.display(frame); time.sleep(DT)
 
 # --- Hourglass ----------------------------------------------------
 HG_WALL = [
@@ -181,7 +78,7 @@ class _Grain:
                 self.settled = True; self.vy = 0
                 self.y = round(self.y); self.x = round(self.x)
 
-def hourglass(pipe, amb, state=None):
+def hourglass(pipe, amb):
     duration = 12.0; start = time.time(); pipe.reset_blur()
     grains = []
     top_cells = [(r,c) for r in range(8) for c in range(8) if _hg_top(r,c)]
@@ -220,31 +117,26 @@ def hourglass(pipe, amb, state=None):
             plot_soft(frame, g.x, g.y, lerp(SAND, SAND_HI, shim),
                       1.0 if g.settled else 1.2)
         amb.tick(frame, wisp_chance=0.002)
-        pipe.display(frame, state=state); time.sleep(DT)
+        pipe.display(frame); time.sleep(DT)
 
-# --- Wheel (gyro-modulated) --------------------------------------
-def wheel(pipe, amb, state=None):
+# --- Wheel --------------------------------------------------------
+def wheel(pipe, amb):
     duration = 10.0; start = time.time(); pipe.reset_blur()
     while True:
         el = time.time() - start
         if el > duration: break
         t = time.time(); frame = full_bg(t)
-        # Gyro Z scales rotation — clamp to avoid runaway
-        gyro_factor = 1.0
-        if state is not None:
-            gz = max(-90.0, min(90.0, state.gyro_z))  # deg/s
-            gyro_factor = 1.0 + gz / 45.0  # range ~[-1, 3]
-        op = el * (2*math.pi / 6) * gyro_factor
+        op = el * (2*math.pi / 6)
         for i in range(8):
             a = i*(2*math.pi/8) + op
             plot_soft(frame, 3.5+3.3*math.cos(a), 3.5+3.3*math.sin(a), AURA_MID, 0.9)
             plot_soft(frame, 3.5+3.3*math.cos(a-0.18), 3.5+3.3*math.sin(a-0.18), AURA_MID, 0.4)
-        mp = -el * (2*math.pi / 4) * gyro_factor
+        mp = -el * (2*math.pi / 4)
         for i in range(6):
             a = i*(2*math.pi/6) + mp
             plot_soft(frame, 3.5+2.0*math.cos(a), 3.5+2.0*math.sin(a), AURA_HOT, 1.0)
             plot_soft(frame, 3.5+2.0*math.cos(a+0.25), 3.5+2.0*math.sin(a+0.25), AURA_HOT, 0.4)
-        ip = el * (2*math.pi / 2) * gyro_factor
+        ip = el * (2*math.pi / 2)
         for i in range(4):
             a = i*(2*math.pi/4) + ip
             plot_soft(frame, 3.5+0.9*math.cos(a), 3.5+0.9*math.sin(a), AURA_CORE, 1.0)
@@ -260,10 +152,10 @@ def wheel(pipe, amb, state=None):
                         plot_soft(frame, 3.5+rs*math.cos(a), 3.5+rs*math.sin(a),
                                   AURA_HOT, s*0.5)
         amb.tick(frame, wisp_chance=0.002)
-        pipe.display(frame, state=state); time.sleep(DT)
+        pipe.display(frame); time.sleep(DT)
 
 # --- Ripples ------------------------------------------------------
-def ripples(pipe, amb, state=None):
+def ripples(pipe, amb):
     duration = 11.0; start = time.time(); last_wave = start - 1.5; waves = []
     pipe.reset_blur()
     while True:
@@ -287,10 +179,10 @@ def ripples(pipe, amb, state=None):
                     col = lerp(AURA_HOT, AURA_CORE, min(1, acc*0.7))
                     frame[r*8+c] = screen(frame[r*8+c], mul(col, min(1, acc*0.85)))
         amb.tick(frame, wisp_chance=0.003)
-        pipe.display(frame, state=state); time.sleep(DT)
+        pipe.display(frame); time.sleep(DT)
 
 # --- Quill --------------------------------------------------------
-def quill(pipe, amb, state=None):
+def quill(pipe, amb):
     duration = 14.0; start = time.time()
     cx = 0.0; cy = 2; marks = {}; pipe.reset_blur()
     while True:
@@ -316,7 +208,7 @@ def quill(pipe, amb, state=None):
         plot_soft(frame, cx, cy-1, INK_HOT, 0.35)
         plot_soft(frame, cx-0.6, cy-0.4, INK_HOT, 0.25)
         amb.tick(frame, wisp_chance=0)
-        pipe.display(frame, state=state); time.sleep(DT)
+        pipe.display(frame); time.sleep(DT)
 
 # --- Sigil --------------------------------------------------------
 SIGILS = [
@@ -333,7 +225,7 @@ SIGILS = [
      [0,0,1,1,1,1,0,0],[0,0,0,1,1,0,0,0],[0,0,0,1,1,0,0,0],
      [0,0,0,0,1,0,0,0],[0,0,0,1,0,0,0,0]],
 ]
-def sigil(pipe, amb, state=None):
+def sigil(pipe, amb):
     sig = random.choice(SIGILS)
     pixels = [(r, c) for r in range(8) for c in range(8) if sig[r][c]]
     if not pixels: return
@@ -345,7 +237,8 @@ def sigil(pipe, amb, state=None):
         ordered.append(pixels.pop(nearest))
     DRAW_DUR = 4.5; HOLD = 2.5; FADE = 1.5
     revealed = {}; s0 = time.time(); pipe.reset_blur()
-    pos = (ordered[0][1], ordered[0][0]); prev_target_t = s0
+    pos = (ordered[0][1], ordered[0][0])
+    prev_target_t = s0
     for i, (r, c) in enumerate(ordered):
         target = s0 + (i/len(ordered))*DRAW_DUR
         target_pos = (c, r)
@@ -363,7 +256,7 @@ def sigil(pipe, amb, state=None):
             plot_soft(frame, px, py-0.5, SIGIL_HOT, 0.3)
             plot_soft(frame, px, py+0.5, SIGIL_HOT, 0.3)
             amb.tick(frame, wisp_chance=0)
-            pipe.display(frame, state=state); time.sleep(DT)
+            pipe.display(frame); time.sleep(DT)
         revealed[(r, c)] = time.time()
         pos = target_pos; prev_target_t = target
     hs = time.time()
@@ -373,7 +266,7 @@ def sigil(pipe, amb, state=None):
         for (rr, cc) in revealed:
             frame[rr*8+cc] = screen(frame[rr*8+cc], mul(SIGIL_HOT, pulse))
         amb.tick(frame, wisp_chance=0)
-        pipe.display(frame, state=state); time.sleep(DT)
+        pipe.display(frame); time.sleep(DT)
     fs = time.time()
     while time.time() - fs < FADE:
         t = time.time(); fp = (t-fs)/FADE
@@ -381,10 +274,10 @@ def sigil(pipe, amb, state=None):
         for (rr, cc) in revealed:
             frame[rr*8+cc] = screen(frame[rr*8+cc], mul(SIGIL_COLD, max(0,1-fp)))
         amb.tick(frame, wisp_chance=0)
-        pipe.display(frame, state=state); time.sleep(DT)
+        pipe.display(frame); time.sleep(DT)
 
 # --- Constellation ------------------------------------------------
-def constellation(pipe, amb, state=None):
+def constellation(pipe, amb):
     N = random.randint(5, 7); stars = []
     while len(stars) < N:
         x = random.uniform(0.8, 7.2); y = random.uniform(0.8, 7.2)
@@ -392,7 +285,7 @@ def constellation(pipe, amb, state=None):
             stars.append((x, y))
     order = list(range(N)); random.shuffle(order)
     reveal = {}; pipe.reset_blur()
-    def render_cur(lines, fade=1.0):
+    def render(lines, fade=1.0):
         t = time.time(); frame = full_bg(t, strength=0.65)
         for (i1, i2, lst, ldur) in lines:
             p = min(1.0, (t-lst)/ldur)
@@ -404,21 +297,21 @@ def constellation(pipe, amb, state=None):
                 tw = 0.8 + 0.2*math.sin(t*3 + idx)
                 plot_soft(frame, x, y, AURA_CORE, b*tw*fade)
         amb.tick(frame, wisp_chance=0.002)
-        pipe.display(frame, state=state); time.sleep(DT)
+        pipe.display(frame); time.sleep(DT)
     s0 = time.time()
     for i, idx in enumerate(order):
-        while time.time() < s0 + i*0.45: render_cur([])
+        while time.time() < s0 + i*0.45: render([])
         reveal[idx] = time.time()
     lines = []
     for i in range(N-1):
         lst = time.time()
         lines.append((order[i], order[i+1], lst, 0.7))
-        while time.time() - lst < 0.7: render_cur(lines)
+        while time.time() - lst < 0.7: render(lines)
     hs = time.time()
-    while time.time() - hs < 2.5: render_cur(lines)
+    while time.time() - hs < 2.5: render(lines)
     fs = time.time()
     while time.time() - fs < 1.5:
-        render_cur(lines, fade=max(0, 1 - (time.time()-fs)/1.5))
+        render(lines, fade=max(0, 1 - (time.time()-fs)/1.5))
 
 # --- Glyphs -------------------------------------------------------
 GLYPHS = [
@@ -433,7 +326,7 @@ GLYPHS = [
     [[1,0,0,0,1],[0,1,1,1,0],[1,1,0,1,1],[0,1,0,1,0],
      [1,1,0,1,1],[0,1,1,1,0],[0,0,1,0,0],[0,0,1,0,0]],
 ]
-def glyphs(pipe, amb, state=None):
+def glyphs(pipe, amb):
     chosen = random.sample(GLYPHS, min(3, len(GLYPHS)))
     strip = [[0]*8 for _ in range(8)]
     for gi, g in enumerate(chosen):
@@ -454,25 +347,16 @@ def glyphs(pipe, amb, state=None):
                     col = lerp(GLYPH, GLYPH_HOT, shim)
                     frame[r*8+c] = screen(frame[r*8+c], mul(col, v*shim))
         amb.tick(frame, wisp_chance=0)
-        pipe.display(frame, state=state); time.sleep(DT)
+        pipe.display(frame); time.sleep(DT)
 
-# --- Fire (temp + pressure modulated) ----------------------------
-def fire(pipe, amb, state=None):
+# --- Fire ---------------------------------------------------------
+def fire(pipe, amb):
     duration = 10.0; start = time.time()
     H = 10; heat = [[0.0]*8 for _ in range(H)]
-    # Temperature palette shift: hot temp = more orange, cool temp = more red
-    temp_shift = 0.0
-    flicker_amp = 0.02
-    if state is not None:
-        # 15C -> -0.2 (cooler/redder), 35C -> +0.3 (hotter/more yellow)
-        temp_shift = max(-0.2, min(0.3, (state.temperature - 25.0) / 35.0))
-        # Low pressure -> bigger flicker
-        p_norm = max(-1.0, min(1.0, (1013.0 - state.pressure) / 15.0))
-        flicker_amp = 0.02 + max(0.0, p_norm) * 0.05
     STOPS = [(0.0, FIRE_LO), (0.35, FIRE_MID), (0.65, FIRE_HI), (1.0, FIRE_TOP)]
     def fc(v):
         if v <= 0: return BLK
-        v = min(1.0, max(0.0, v + temp_shift))
+        v = min(1.0, v)
         for i in range(len(STOPS)-1):
             s0, c0 = STOPS[i]; s1, c1 = STOPS[i+1]
             if v <= s1: return lerp(c0, c1, (v - s0) / (s1 - s0))
@@ -495,7 +379,7 @@ def fire(pipe, amb, state=None):
                 if c < 7: sides.append(heat[r+1][c+1])
                 sides.append(heat[r+2][c])
                 avg = sum(sides) / len(sides)
-                decay = 1.0 - (0.055 + random.uniform(-flicker_amp, flicker_amp))
+                decay = 1.0 - (0.055 + random.uniform(-0.02, 0.02))
                 drift = random.choice([-1, 0, 0, 1])
                 sc = c + drift
                 if 0 <= sc < 8:
@@ -512,11 +396,11 @@ def fire(pipe, amb, state=None):
             amb.spawn_mote(random.uniform(1.5, 6.5), 1.0)
             amb.motes[-1].vy = random.uniform(-2.5, -1.5)
         amb.tick(frame, spawn_dust=False, wisp_chance=0)
-        pipe.display(frame, state=state); time.sleep(DT)
+        pipe.display(frame); time.sleep(DT)
     amb.clear_motes()
 
 # --- Orrery -------------------------------------------------------
-def orrery(pipe, amb, state=None):
+def orrery(pipe, amb):
     duration = 12.0; start = time.time(); pipe.reset_blur()
     bodies = [
         (3.0, 0.6, 0.0, ORBIT_A),
@@ -552,72 +436,10 @@ def orrery(pipe, amb, state=None):
                     my = (positions[i][1] + positions[j][1]) / 2
                     plot_soft(frame, mx, my, AURA_CORE, (1 - d/0.8) * 0.6)
         amb.tick(frame, wisp_chance=0.002)
-        pipe.display(frame, state=state); time.sleep(DT)
-
-# --- Storm (pressure-drop triggered or scheduled) ----------------
-class _RainStreak:
-    def __init__(self):
-        self.x = random.uniform(0, 7.99)
-        self.y = random.uniform(-4, 0)
-        self.v = random.uniform(12.0, 18.0)
-        self.length = random.uniform(1.8, 3.5)
-        self.brightness = random.uniform(0.6, 1.0)
-    def step(self):
-        self.y += self.v * DT
-    def alive(self): return self.y < 10
-    def render(self, frame):
-        for i in range(int(self.length * 2)):
-            y = self.y - i * 0.5
-            if 0 <= y < 8:
-                intensity = self.brightness * (1 - i / (self.length*2)) * 0.7
-                col = lerp(STORM_RAIN, STORM_RAIN_HI, i < 2)
-                plot_soft(frame, self.x, y, col, intensity)
-
-def storm(pipe, amb, state=None):
-    duration = 12.0; start = time.time(); pipe.reset_blur()
-    rain = []
-    last_bolt = 0.0
-    next_bolt = start + random.uniform(2.0, 5.0)
-    bolt_flash = 0.0
-    bolt_path = []
-    while True:
-        el = time.time() - start
-        if el > duration: break
-        t = time.time()
-        frame = [STORM_BG] * 64
-        # Rain
-        if random.random() < 0.65:
-            rain.append(_RainStreak())
-        for r_ in rain: r_.step()
-        rain[:] = [r_ for r_ in rain if r_.alive()]
-        for r_ in rain: r_.render(frame)
-        # Lightning
-        if t > next_bolt and bolt_flash <= 0:
-            bolt_flash = 0.35
-            last_bolt = t
-            next_bolt = t + random.uniform(3.0, 7.0)
-            # Zigzag path top to bottom
-            bolt_path = []
-            x = random.uniform(2, 6)
-            for y in range(0, 9):
-                bolt_path.append((x, y))
-                x += random.uniform(-0.8, 0.8)
-                x = max(0.2, min(7.8, x))
-        if bolt_flash > 0:
-            flash_fade = bolt_flash / 0.35
-            # White wash
-            for i in range(64):
-                frame[i] = lerp(frame[i], STORM_BOLT, flash_fade * 0.55)
-            # Bolt path
-            for i in range(len(bolt_path)-1):
-                x0, y0 = bolt_path[i]; x1, y1 = bolt_path[i+1]
-                draw_line(frame, x0, y0, x1, y1, STORM_BOLT, flash_fade)
-            bolt_flash -= DT
-        amb.tick(frame, spawn_dust=False, wisp_chance=0)
-        pipe.display(frame, state=state); time.sleep(DT)
+        pipe.display(frame); time.sleep(DT)
 
 # --- Recite -------------------------------------------------------
-def recite(pipe, amb, state=None):
+def recite(pipe, amb):
     quote = random.choice(QUOTES); pipe.reset_blur()
     for i in range(int(1.3 * FPS)):
         u = i / (1.3*FPS); frame = [VOID] * 64
@@ -626,7 +448,7 @@ def recite(pipe, amb, state=None):
                 d_sq = (c-3.5)**2 + (r-3.5)**2
                 glow = math.exp(-d_sq / 4.0) * u * 0.75
                 frame[r*8+c] = screen(frame[r*8+c], mul(AURA_DIM, glow))
-        pipe.display(frame, state=state); time.sleep(DT)
+        pipe.display(frame); time.sleep(DT)
     pipe.reset_blur()
     SUB = 14; pre, post = 10, 9
     cols = [[0]*8 for _ in range(pre)] + text_cols(quote) + [[0]*8 for _ in range(post)]
@@ -642,7 +464,7 @@ def recite(pipe, amb, state=None):
                 v = cols[off+c][r]*(1-fine) + cols[min(off+c+1, width-1)][r]*fine
                 if v > 0.05:
                     frame[r*8+c] = lerp(frame[r*8+c], INK_HOT, v)
-        pipe.display(frame, do_blur=False, state=state); time.sleep(DT)
+        pipe.display(frame, do_blur=False); time.sleep(DT)
     pipe.reset_blur()
     for i in range(int(2.0 * FPS)):
         t = time.time(); u = i / (2.0*FPS)
@@ -652,10 +474,12 @@ def recite(pipe, amb, state=None):
                 d_sq = (c-3.5)**2 + (r-3.5)**2
                 glow = math.exp(-d_sq / 4.0) * 0.5 * (1 - u)
                 frame[r*8+c] = screen(frame[r*8+c], mul(AURA_MID, glow))
-        pipe.display(frame, state=state); time.sleep(DT)
+        pipe.display(frame); time.sleep(DT)
+
+from .render import text_cols  # ensure imported
 
 # --- Judgment -----------------------------------------------------
-def judgment(pipe, amb, state=None):
+def judgment(pipe, amb):
     pipe.reset_blur()
     tf = int(1.5 * FPS)
     for i in range(tf):
@@ -673,7 +497,7 @@ def judgment(pipe, amb, state=None):
         if random.random() < amp * 0.5:
             amb.spawn_mote(3.5+jx, 3.5+jy)
         amb.tick(frame, wisp_chance=0)
-        pipe.display(frame, state=state); time.sleep(DT)
+        pipe.display(frame); time.sleep(DT)
     for i in range(int(0.9 * FPS)):
         u = i/(0.9*FPS); ring_r = u * 5.8; base_v = u * 0.45
         frame = []
@@ -683,7 +507,7 @@ def judgment(pipe, amb, state=None):
                 ri = max(0, 1 - abs(d - ring_r)*0.8) * (1 - u*0.3)
                 base = lerp(VOID, AURA_HOT, base_v)
                 frame.append(lerp(base, VERDICT, ri))
-        pipe.display(frame, state=state); time.sleep(DT)
+        pipe.display(frame); time.sleep(DT)
     for _ in range(int(0.2*FPS)):
         pipe.sense.set_pixels([VERDICT] * 64); time.sleep(DT)
     max_d = math.hypot(3.5, 3.5)
@@ -695,12 +519,12 @@ def judgment(pipe, amb, state=None):
                 d = math.hypot(c - 3.5, r - 3.5)
                 local = max(0, min(1, tt*2.2 - d/max_d*1.3))
                 frame.append(lerp(VERDICT, VOID, local))
-        pipe.display(frame, do_blur=False, state=state); time.sleep(DT)
+        pipe.display(frame, do_blur=False); time.sleep(DT)
     pipe.reset_blur()
     for _ in range(int(1.0 * FPS)):
         frame = [mul(VOID, 0.3)] * 64
         amb.tick(frame, wisp_chance=0)
-        pipe.display(frame, state=state); time.sleep(DT)
+        pipe.display(frame); time.sleep(DT)
     amb.clear_motes()
 
 # --- Registry -----------------------------------------------------
@@ -714,7 +538,6 @@ REGISTRY = [
     ('glyphs',        glyphs,        2),
     ('fire',          fire,          3),
     ('orrery',        orrery,        3),
-    ('storm',         storm,         1),
     ('recite',        recite,        2),
     ('judgment',      judgment,      1),
 ]

@@ -1,4 +1,4 @@
-"""Ambient particle systems + background generator. Sensor-aware."""
+"""Ambient particle systems + background generator."""
 import math, random, time
 from .render import (DT, VOID, SHADOW_HI, DUST, WISP, EMBER, EMBER_HI,
                      lerp, mul, screen, plot_soft, vnoise)
@@ -20,12 +20,9 @@ class Dust:
         self.vx=random.uniform(-0.15,0.15); self.vy=random.uniform(-0.20,-0.03)
         self.life=random.uniform(8,16); self.age=0.0
         self.base=random.uniform(0.3,0.7)
-    def step(self, vy_bias=0.0, vx_bias=0.0):
-        self.age+=DT
-        self.x=(self.x + (self.vx + vx_bias)*DT) % 8.0
-        self.y+=(self.vy + vy_bias)*DT
+    def step(self):
+        self.age+=DT; self.x=(self.x+self.vx*DT)%8.0; self.y+=self.vy*DT
         if self.y < -0.5: self.y = 8.5
-        if self.y > 8.5:  self.y = -0.5
     def alive(self): return self.age < self.life
     def render(self, frame):
         fade = min(1.0, self.age/0.8, (self.life-self.age)/1.2)
@@ -53,36 +50,17 @@ class Wisp:
         plot_soft(frame, self.x+0.5, self.y, WISP, fade*0.3)
 
 class AmbientLayer:
-    """Ambient state. Optionally sensor-aware via state."""
-    def __init__(self, state=None):
-        self.state = state
+    """Shared ambient state across all scenes. Scenes call tick()."""
+    def __init__(self):
         self.dust = [Dust() for _ in range(6)]
         self.wisps = []
         self.motes = []
 
-    def _dust_target(self):
-        """4 to 10 dust particles, scaled by humidity if state present."""
-        if self.state is None: return 7
-        h = max(0.0, min(100.0, self.state.humidity))
-        # 20% RH -> 4 dust, 80%+ RH -> 10 dust
-        return max(4, min(10, int(4 + (h - 20) / 10)))
-
-    def _dust_bias(self):
-        """Return (vy_bias, vx_bias) from accel tilt — dust drifts with 'gravity'."""
-        if self.state is None: return (0.0, 0.0)
-        tx, ty = self.state.tilt()
-        # Pi flat: tx,ty ~ 0. Pi tilted: nonzero.
-        return (ty * 0.3, tx * 0.3)
-
     def tick(self, frame, spawn_dust=True, wisp_chance=0.003):
-        vy_b, vx_b = self._dust_bias()
-        for d in self.dust: d.step(vy_b, vx_b)
+        for d in self.dust: d.step()
         self.dust[:] = [d for d in self.dust if d.alive()]
-        target = self._dust_target()
-        while spawn_dust and len(self.dust) < target:
+        while spawn_dust and len(self.dust) < 7:
             self.dust.append(Dust())
-        while len(self.dust) > target + 2:
-            self.dust.pop(0)
         if random.random() < wisp_chance and len(self.wisps) < 2:
             self.wisps.append(Wisp())
         for w in self.wisps: w.step()
