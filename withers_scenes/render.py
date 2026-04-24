@@ -219,7 +219,7 @@ class Pipeline:
         # Clip + cast + convert to list of tuples for sense_hat.
         np.clip(arr, 0.0, 255.0, out=arr)
         arr_u8 = arr.astype(np.uint8)
-        out = [tuple(px) for px in arr_u8.reshape(64, 3)]
+        out = [(int(r), int(g), int(b)) for r, g, b in arr_u8.reshape(64, 3)]
         self.sense.set_pixels(out)
 
     def clear(self):
