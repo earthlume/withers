@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Withers — The Ledger</title>
+<link rel="stylesheet" href="/static/withers.css">
+</head>
+<body>
+
+<h1><span class="pulse"></span>Withers &middot; The Ledger</h1>
+<div class="subtitle">A vigil kept in sixty-four points of light</div>
+<div class="nav">
+  <a href="/">The Ledger</a>
+  <a href="/about">Of the Scribe</a>
+</div>
+
+<hr class="rule">
+
+<div class="grid">
+
+  <div class="panel">
+    <h2>The Present Watch</h2>
+    <div class="kv"><span class="k">Presently</span><span class="v" id="scene">—</span></div>
+    <div class="kv"><span class="k">Humour</span><span class="v"><span id="state" class="state-tag">—</span></span></div>
+    <div class="kv"><span class="k">Vigil held</span><span class="v" id="uptime">—</span></div>
+    <div class="kv"><span class="k">Disturbance</span><span class="v" id="disturbance">—</span></div>
+    <div class="kv"><span class="k">Storm abroad</span><span class="v" id="storm">—</span></div>
+    <div class="meta">The scribe attends his table.</div>
+  </div>
+
+  <div class="panel">
+    <h2>The Vigil Itself</h2>
+    <div class="preview" id="preview"></div>
+    <div class="meta">Refreshed every half-second. What thou seest, he sees.</div>
+  </div>
+
+  <div class="panel">
+    <h2>The Humours of This Place</h2>
+    <div class="kv"><span class="k">Temperature</span><span class="v" id="temp">—</span></div>
+    <div class="kv"><span class="k">Humidity</span><span class="v" id="hum">—</span></div>
+    <div class="kv"><span class="k">Pressure</span><span class="v" id="pres">—</span></div>
+    <div class="meta">Measured at his post, not in the wider world.</div>
+  </div>
+
+  <div class="panel">
+    <h2>Motion &amp; Bearing</h2>
+    <div class="kv"><span class="k">Accel magnitude</span><span class="v" id="amag">—</span></div>
+    <div class="kv"><span class="k">Gyro Z</span><span class="v" id="gz">—</span></div>
+    <div class="kv"><span class="k">Tilt</span><span class="v" id="tilt">—</span></div>
+    <div class="meta">Disturb him not without cause.</div>
+  </div>
+
+  <div class="panel">
+    <h2>Magnetic Humours</h2>
+    <div class="kv"><span class="k">X / Y / Z (µT)</span><span class="v" id="mag">—</span></div>
+    <div class="kv"><span class="k">Baseline set</span><span class="v" id="bready">—</span></div>
+    <div class="kv"><span class="k">Last calibration</span><span class="v" id="bage">—</span></div>
+    <div class="meta" id="bmeta"></div>
+  </div>
+
+  <div class="panel span-2">
+    <h2>Warmth &amp; Vapour — The Last Hour</h2>
+    <canvas id="chart1"></canvas>
+  </div>
+
+  <div class="panel span-2">
+    <h2>The Weight of Air — The Last Hour</h2>
+    <canvas id="chart2"></canvas>
+  </div>
+
+  <div class="panel span-2">
+    <h2>Recent Pages of the Ledger</h2>
+    <div class="history" id="history"></div>
+    <div class="meta">The scribe records what the scribe observes.</div>
+  </div>
+
+</div>
+
+<div class="footer">
+  Withers keeps watch. Thou needst not linger.
+</div>
+
+<script src="/static/dashboard.js"></script>
+</body>
+</html>
