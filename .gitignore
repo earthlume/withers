@@ -3,3 +3,8 @@ __pycache__/
 *.pyc
 _monolith_archive.py
 *.pre-*
+withers.db
+withers.db-journal
+withers.db-wal
+withers.db-shm
+sensor_baseline.json
